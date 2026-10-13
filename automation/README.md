@@ -299,3 +299,10 @@ ledger path that cannot be written left the agent's run unaffected. Limits: a
 failing write), so a session line can be missing; usage outside Claude Code, and
 before this hook, is not recorded; attribution is as conservative as the
 transcript scan.
+
+## Related: replayable evaluation tasks
+
+The maintainer's evaluation harness (roadmap milestone 3) lives in
+[`evals/maintainer/`](../evals/maintainer/README.md): versioned tasks replayed
+from frozen snapshots of this repository, hidden graders, and a runner that
+records pass, fail or infra-error per run.
