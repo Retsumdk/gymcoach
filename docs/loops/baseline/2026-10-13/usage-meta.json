@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-13T10:36:54.380Z",
+  "sourceCommit": "368a9d3d3fa25ebafcd52ad7a9af63eb2f2ab906",
+  "transcriptCoverage": {
+    "from": "2026-09-11T09:09:04.033Z",
+    "to": "2026-10-13T10:36:51.333Z"
+  },
+  "sessionsScanned": {
+    "main": 9,
+    "subagent": 120
+  },
+  "subagentsAttributed": 72,
+  "subagentsUnattributed": 48,
+  "duplicateResponses": {
+    "toOrchestration": 24,
+    "toUnattributed": 0
+  },
+  "droppedResponses": 0,
+  "orchestration": {
+    "sessions": 9,
+    "responses": 901,
+    "tokens": {
+      "input": 7972,
+      "output": 698017,
+      "cacheRead": 184550349,
+      "cacheCreation5m": 0,
+      "cacheCreation1h": 3031573
+    },
+    "estimatedCostUsd": {
+      "status": "known",
+      "value": 111.1914,
+      "unit": "usd"
+    }
+  },
+  "unattributedSubagents": {
+    "sessions": 48,
+    "responses": 1185,
+    "tokens": {
+      "input": 3008,
+      "output": 592605,
+      "cacheRead": 185954583,
+      "cacheCreation5m": 7443452,
+      "cacheCreation1h": 0
+    },
+    "estimatedCostUsd": {
+      "status": "known",
+      "value": 99.2773,
+      "unit": "usd"
+    }
+  },
+  "priceTable": {
+    "checkedAt": "2026-10-13",
+    "source": "Claude API reference bundled with Claude Code 2.1.292 (models table cached 2026-09-25; prompt-caching economics)"
+  }
+}
