@@ -39,7 +39,7 @@ import {
   previewHistoricalEquipmentBackfill,
   undoHistoricalEquipmentBackfill,
 } from '@/lib/mcp/historical-equipment-backfill';
-import { Prisma } from '@/prisma/generated/client';
+import { guardToolHandler } from '@/lib/mcp/errors';
 
 export const GYMCOACH_MCP_INSTRUCTIONS = `GymCoach stores the trainee's profile, gyms, equipment, programs, workout history, sets, RIR, goals and recovery signals.
 
@@ -84,16 +84,6 @@ function requireWrite(principal: McpPrincipal) {
       'This GymCoach MCP token is read-only. Create a write-enabled token in Settings.',
     );
   }
-}
-
-// A thrown error reaches the MCP client as its bare message. A unique-constraint
-// violation would leak the raw Prisma invocation text, so give it the same clean
-// wording the REST layer uses for a 409 (lib/api.ts handleApiError).
-function rethrowUniqueConflict(err: unknown): never {
-  if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-    throw new Error('Conflict: an entry with this value already exists.');
-  }
-  throw err;
 }
 
 async function getOwnedProgram(userId: string, programId?: string) {
@@ -208,7 +198,7 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
         'Returns a compact task-oriented index of exact GymCoach MCP tool names. Use this once when the client cannot expose a complete tools/list; do not repeatedly guess tool names or probe synonyms.',
       annotations: { readOnlyHint: true, openWorldHint: false, idempotentHint: true },
     },
-    async () =>
+    guardToolHandler(async () =>
       result({
         discoveryRule:
           'Prefer one complete tools/list. If unavailable, call get_mcp_capability_index once, then use exact names. Stop repeated synonym probing.',
@@ -220,6 +210,7 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
           : 'This connection is read-only: every tool listed under "write" is refused. Do not plan around them; tell the trainee a write-enabled connection from Settings is needed for changes.',
         capabilities: MCP_CAPABILITY_INDEX,
       }),
+    ),
   );
 
   server.registerTool(
@@ -230,7 +221,7 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
         'Lists saved gyms, identifies the active gym and reports physical-equipment/config counts.',
       annotations: { readOnlyHint: true, openWorldHint: false, idempotentHint: true },
     },
-    async () => result(await listOwnedGyms(principal.userId)),
+    guardToolHandler(async () => result(await listOwnedGyms(principal.userId))),
   );
 
   server.registerTool(
@@ -245,10 +236,11 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
       },
       annotations: { readOnlyHint: true, openWorldHint: false, idempotentHint: true },
     },
-    async ({ gymId, includeExerciseCoverage }) =>
+    guardToolHandler(async ({ gymId, includeExerciseCoverage }) =>
       result(
         await getOwnedGymInventory(principal.userId, baseUrl, gymId, { includeExerciseCoverage }),
       ),
+    ),
   );
 
   server.registerTool(
@@ -262,7 +254,7 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
       },
       annotations: { readOnlyHint: true, openWorldHint: false, idempotentHint: true },
     },
-    async ({ equipmentId }) => {
+    guardToolHandler(async ({ equipmentId }) => {
       const saved = await getOwnedGymEquipmentImage(principal.userId, equipmentId);
       if (saved.kind === 'uploaded') {
         const metadata = {
@@ -286,7 +278,7 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
         };
       }
       return result({ equipmentId, image: saved });
-    },
+    }),
   );
 
   server.registerTool(
@@ -309,11 +301,11 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
         openWorldHint: false,
       },
     },
-    async ({ gymId, confirmed: _confirmed, ...patch }) => {
+    guardToolHandler(async ({ gymId, confirmed: _confirmed, ...patch }) => {
       requireWrite(principal);
       const { gym, previous } = await updateOwnedGymFreeWeights(principal.userId, gymId, patch);
       return result({ ok: true, gym, previous });
-    },
+    }),
   );
 
   server.registerTool(
@@ -343,14 +335,12 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
         openWorldHint: false,
       },
     },
-    async ({ gymId, confirmed: _confirmed, ...input }) => {
+    guardToolHandler(async ({ gymId, confirmed: _confirmed, ...input }) => {
       requireWrite(principal);
       const previous = await findOwnedGymEquipmentUpsertTarget(principal.userId, gymId, input);
-      const saved = await upsertOwnedGymEquipment(principal.userId, gymId, input).catch(
-        rethrowUniqueConflict,
-      );
+      const saved = await upsertOwnedGymEquipment(principal.userId, gymId, input);
       return result({ ok: true, ...saved, previous });
-    },
+    }),
   );
 
   server.registerTool(
@@ -373,7 +363,7 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
         openWorldHint: false,
       },
     },
-    async ({ equipmentId, clear, imageBase64, mimeType }) => {
+    guardToolHandler(async ({ equipmentId, clear, imageBase64, mimeType }) => {
       requireWrite(principal);
       // Uploaded bytes or clear only: an external URL written by an agent would be
       // handed back to every later MCP client, so that mode stays web-UI only.
@@ -390,7 +380,7 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
       });
       const image = gymEquipmentImageRef(equipment);
       return result({ ok: true, equipment: { ...equipment, image } });
-    },
+    }),
   );
 
   server.registerTool(
@@ -401,7 +391,7 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
         'Returns the trainee profile, recent training, active program, records, goals, fatigue, readiness, conditioning and active gym equipment.',
       annotations: { readOnlyHint: true, openWorldHint: false, idempotentHint: true },
     },
-    async () => {
+    guardToolHandler(async () => {
       const [coach, user] = await Promise.all([
         buildCoachPayload(principal.userId),
         db.user.findUnique({
@@ -429,7 +419,7 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
         activeGym: user?.activeGym ?? null,
         coach,
       });
-    },
+    }),
   );
 
   server.registerTool(
@@ -443,7 +433,7 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
       },
       annotations: { readOnlyHint: true, openWorldHint: false, idempotentHint: true },
     },
-    async ({ search, limit }) => {
+    guardToolHandler(async ({ search, limit }) => {
       const exercises = await db.exercise.findMany({
         where: {
           userId: principal.userId,
@@ -463,7 +453,7 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
         },
       });
       return result({ exercises });
-    },
+    }),
   );
 
   server.registerTool(
@@ -490,14 +480,14 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
       },
       annotations: { readOnlyHint: true, openWorldHint: false, idempotentHint: true },
     },
-    async ({ from, to, ...input }) => {
+    guardToolHandler(async ({ from, to, ...input }) => {
       const preview = await previewHistoricalEquipmentBackfill(principal.userId, {
         ...input,
         from: from ? parseHistoricalDateBound(from, 'from') : undefined,
         to: to ? parseHistoricalDateBound(to, 'to') : undefined,
       });
       return result(preview);
-    },
+    }),
   );
 
   server.registerTool(
@@ -516,7 +506,9 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
       },
       annotations: { readOnlyHint: true, openWorldHint: false, idempotentHint: true },
     },
-    async ({ limit }) => result(await listHistoricalEquipmentBackfills(principal.userId, limit)),
+    guardToolHandler(async ({ limit }) =>
+      result(await listHistoricalEquipmentBackfills(principal.userId, limit)),
+    ),
   );
 
   server.registerTool(
@@ -539,11 +531,11 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
         openWorldHint: false,
       },
     },
-    async (input) => {
+    guardToolHandler(async (input) => {
       requireWrite(principal);
       const applied = await applyHistoricalEquipmentBackfill(principal.userId, input);
       return result(applied);
-    },
+    }),
   );
 
   server.registerTool(
@@ -563,11 +555,11 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
         openWorldHint: false,
       },
     },
-    async (input) => {
+    guardToolHandler(async (input) => {
       requireWrite(principal);
       const undone = await undoHistoricalEquipmentBackfill(principal.userId, input);
       return result(undone);
-    },
+    }),
   );
 
   server.registerTool(
@@ -577,7 +569,7 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
       description: 'Lists saved programs and their workout counts.',
       annotations: { readOnlyHint: true, openWorldHint: false, idempotentHint: true },
     },
-    async () => {
+    guardToolHandler(async () => {
       const programs = await db.program.findMany({
         where: { userId: principal.userId },
         orderBy: { updatedAt: 'desc' },
@@ -592,7 +584,7 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
         },
       });
       return result({ programs });
-    },
+    }),
   );
 
   server.registerTool(
@@ -605,7 +597,7 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
       },
       annotations: { readOnlyHint: true, openWorldHint: false, idempotentHint: true },
     },
-    async ({ programId }) => {
+    guardToolHandler(async ({ programId }) => {
       const id = await getOwnedProgram(principal.userId, programId);
       const program = await db.program.findUnique({
         where: { id },
@@ -622,7 +614,7 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
         },
       });
       return result({ program });
-    },
+    }),
   );
 
   server.registerTool(
@@ -639,11 +631,11 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
         openWorldHint: false,
       },
     },
-    async ({ program }) => {
+    guardToolHandler(async ({ program }) => {
       requireWrite(principal);
       const id = await buildProgramFromGenerated(principal.userId, program);
       return result({ ok: true, programId: id, active: false });
-    },
+    }),
   );
 
   server.registerTool(
@@ -663,7 +655,7 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
         openWorldHint: false,
       },
     },
-    async ({ programId, values }) => {
+    guardToolHandler(async ({ programId, values }) => {
       requireWrite(principal);
       await getOwnedProgram(principal.userId, programId);
       const program = await db.program.update({
@@ -675,7 +667,7 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
         },
       });
       return result({ ok: true, program });
-    },
+    }),
   );
 
   server.registerTool(
@@ -696,7 +688,7 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
         openWorldHint: false,
       },
     },
-    async ({ programId, workout: input }) => {
+    guardToolHandler(async ({ programId, workout: input }) => {
       requireWrite(principal);
       const id = await getOwnedProgram(principal.userId, programId);
       const workoutId = await addWorkoutToProgram(principal.userId, id, input);
@@ -705,7 +697,7 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
         include: { exercises: { orderBy: { order: 'asc' }, include: { exercise: true } } },
       });
       return result({ ok: true, programId: id, workout });
-    },
+    }),
   );
 
   server.registerTool(
@@ -725,7 +717,7 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
         openWorldHint: false,
       },
     },
-    async ({ workoutId, exercise: input }) => {
+    guardToolHandler(async ({ workoutId, exercise: input }) => {
       requireWrite(principal);
       const workout = await db.workout.findFirst({
         where: { id: workoutId, program: { userId: principal.userId } },
@@ -780,7 +772,7 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
         });
       });
       return result({ ok: true, programExercise: created });
-    },
+    }),
   );
 
   server.registerTool(
@@ -811,7 +803,7 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
         openWorldHint: false,
       },
     },
-    async ({ programExerciseId, confirmed: _confirmed, ...patch }) => {
+    guardToolHandler(async ({ programExerciseId, confirmed: _confirmed, ...patch }) => {
       requireWrite(principal);
       const current = await db.programExercise.findFirst({
         where: { id: programExerciseId, workout: { program: { userId: principal.userId } } },
@@ -829,7 +821,7 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
         include: { exercise: true },
       });
       return result({ ok: true, programExercise: updated });
-    },
+    }),
   );
 
   server.registerTool(
@@ -845,7 +837,7 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
         openWorldHint: false,
       },
     },
-    async ({ programExerciseId }) => {
+    guardToolHandler(async ({ programExerciseId }) => {
       requireWrite(principal);
       const current = await db.programExercise.findFirst({
         where: { id: programExerciseId, workout: { program: { userId: principal.userId } } },
@@ -854,7 +846,7 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
       if (!current) throw new Error('Program exercise not found.');
       await db.programExercise.delete({ where: { id: programExerciseId } });
       return result({ ok: true, removedExercise: current.exercise.name });
-    },
+    }),
   );
 
   server.registerTool(
@@ -870,7 +862,7 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
         openWorldHint: false,
       },
     },
-    async ({ programId }) => {
+    guardToolHandler(async ({ programId }) => {
       requireWrite(principal);
       await getOwnedProgram(principal.userId, programId);
       await db.$transaction([
@@ -881,7 +873,7 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
         db.program.update({ where: { id: programId }, data: { isActive: true } }),
       ]);
       return result({ ok: true, programId, active: true });
-    },
+    }),
   );
 
   return server;
