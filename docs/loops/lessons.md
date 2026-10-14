@@ -818,8 +818,8 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   Two more short reviews then checked only that no claim exceeded the code: the first
   still found two overclaims (one sentence in the README, the `PAID_AGENT_ENABLED`
   comment), the second was ready.
-- **Lesson:** when the same security or validity control draws a new blocking bypass in
-  three consecutive reviews, stop treating the next fix as the last one. State the round
+- **Lesson:** when the same security or validity control draws a new blocking or major bypass
+  in three consecutive reviews, stop treating the next fix as the last one. State the round
   budget before the next round (at most two more), and when it is spent: (1) narrow every
   claim to what is implemented, including code comments at the decision point; (2) list
   the known bypasses as residual risks without exploit code; (3) file one follow-up
