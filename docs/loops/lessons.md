@@ -766,3 +766,41 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   review of a control misses these, because each piece works as written.
 - **Status:** graduated -> step 4 of the `ship-pr` skill (a review of review, merge or guard
   machinery asks that question and is posted through the machinery when it exists).
+
+### L45 - Screen with allowlists, not denylists
+- **Trigger:** 2026-10-13/14, #455 (eval containment). Four review rounds each found a new
+  bypass of a denylist screen of what the agent under evaluation must not change: a Prisma
+  generator opened on the same line as a closing brace, expected hashes taken after
+  `prisma generate`, a generator hidden behind a lone carriage return ending a comment, and
+  a project `.npmrc` whose `node-options` npm copies into `NODE_OPTIONS` under `npx`. Each
+  fix closed one spelling and the next review found another. A fifth review then beat the
+  first allowlist twice from inside it: a nested `lib/quiet/package.json` "imports" map
+  aliasing `vitest`, and `expect.extend` on the vitest global from `messages/en`, which the
+  base setup imports.
+- **Lesson:** screen with allowlists, not denylists. Name what an untrusted actor may change
+  (here: regular files under the application source roots, no dotfile, no `node_modules`
+  segment, no test file, nothing under `prisma/`), take everything else from a trusted base,
+  and stop running tools through layers that read untrusted config (call node scripts
+  directly with an explicit environment). A denylist reviewer keeps finding the next
+  spelling; an allowlist closes the file-level class. Name file types too, not only
+  directories: "anything under lib/" still admitted a config. And where the untrusted code
+  runs inside the judge's own process, no allowlist of files helps: detect tampering with
+  a judge-owned canary. A canary that only probes behaviour is itself a list of cheats in
+  disguise: the next review beat it with matchers lenient only for strings, spies or test
+  callers. Record the judge's own functions by identity before any untrusted code loads,
+  and fail on any change, whatever the new function does. Even that is a tripwire, not a
+  proof: the sixth review beat it with a built-in left out of the hand-picked record, made
+  to misbehave only for callers at hidden-test paths (the probes ran from elsewhere), and
+  with test hooks reached through `globalThis`, which the lexical hook rule did not match.
+  When the judge shares a process with the judged, say which checks exist, list the known
+  gaps, keep a human diff review on the result, and stop hardening rounds at a stated
+  budget instead of claiming closure.
+- **Status:** graduated -> `isAgentWritable` in `evals/maintainer/runner.ts` (#455); the
+  graded Prisma schema is the base file byte for byte; the tools run as node scripts with an
+  empty `NODE_OPTIONS`; the `tamper-generator` self-check replays all four bypasses. Round 5:
+  source-file extensions and config names at any depth in the allowlist, and the harness
+  canary (`canaryFiles`), proven by the `tamper-inprocess` self-check. Round 6: the canary
+  records function identities before the base setup and checks them around every test,
+  proven by the `tamper-selective` self-check, which passes the round-5 canary. The two
+  round-6 bypasses are documented residual risks, tracked in #468; the paid agent stays
+  disabled until they are closed or accepted.
