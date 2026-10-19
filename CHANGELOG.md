@@ -100,6 +100,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `/mcp` is no longer unbounded (#376). A request body over 8 MiB is refused
+  with `413`, counted on the bytes read so a missing or understated
+  `Content-Length` does not get past it, before the SDK transport parses it.
+  A body that fails mid-read (a client abort) gets `400` with the JSON-RPC
+  parse-error shape instead of a server error. Each token may make at most 60
+  write calls per minute across all write tools; the next one returns a tool
+  error with a retry delay. Reads are not limited.
 - Shared devices: logging out now deletes the service-worker caches that hold
   one user's data (`api-get`, `pages`, `start-url`; every cache except the
   build-asset ones), before and after the logout call, and the synced sets kept
