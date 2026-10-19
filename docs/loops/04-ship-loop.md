@@ -48,6 +48,40 @@ integration/E2E), read the real error with `gh run view --log-failed`, fix the *
 on the PR branch, re-verify, push. Each fix counts against the 3-attempt budget so a
 flaky-looking failure cannot loop forever.
 
+## Sequential merges: a stale base is refused, records carry over a pure update
+
+The `ship-pr` skill merges through the merge gate
+([`automation/publish/merge.ts`](../../automation/publish/merge.ts)). Since #481 (lesson
+L39, follow-ups in #483) a merge done through `merge.ts` reads the live tip of `main` and
+refuses a PR whose base is not that tip (`base-stale`). The PR merges `origin/main`, CI runs
+again on the new head, and only then may it merge, so CI must be green on a head that
+already contains the current `main`. Two residuals stay open (the roadmap's milestone 2
+item says the same): the merge call pins the head, not the base, so a merge by another
+session or a human in the seconds between the gate's read of `main` and the merge call is
+not caught (no merge queue, no lock across sessions); and a merge from the GitHub UI or a
+plain `gh` call bypasses the gate, because the `protect-main` ruleset does not require
+up-to-date branches (`strict_required_status_checks_policy: false`).
+
+Re-reviewing after every such merge would make a wave of N PRs cost about N squared
+reviews. The gate avoids that: it carries review records across a **pure base update**, a
+merge of `main` with no hand edit and the same `.gitattributes` files on both parents,
+which it proves with git in its own trusted tree
+([`base-update.ts`](../../automation/publish/base-update.ts)). Stops always carry; a ready
+record carries only when its base is on `main`. A hand-resolved conflict is not a pure
+update, so every record has to be posted again for the new head.
+
+What it cost before the fix (2026-10-19, the #485-#489 wave, lesson L47): every PR added
+its entry to the same lines of `CHANGELOG.md`, so each merge left the next PRs with a
+conflict that GitHub's update-branch could not write. That gave 3 hand-resolved merges and
+5 re-attestation rounds, each a diff check that found nothing, plus a CI cycle per merge.
+The fix is structural: PRs now add a file in `changelog.d/` instead (#491, #492) and the
+write-up PR folds them, so a merge of `main` stays a pure update and the records carry.
+
+The gate also caught a slip of the loop itself on #492, the first PR merged after
+fragments landed: the review record post failed on a transient GitHub API error, the gate
+refused the merge with `no-review`, the record was posted again, and the merge went
+through on it. Nothing merged without its record.
+
 ## How it chains
 
 `implement-issue` (`02`) and `write-up` (`05`) both produce PRs; the ship loop merges
