@@ -14,6 +14,7 @@ import {
   type RequiredCheck,
   evaluateMergeGate,
 } from '@/automation/publish/gate';
+import { collectBaseUpdates, runGit } from '@/automation/publish/base-update';
 import {
   type IssueComment,
   type ParsedReviews,
@@ -22,8 +23,11 @@ import {
 
 // Pinned merge for every PR, loop-authored or external (roadmap milestone 2).
 // Fetches the live PR, its check runs for the approved SHA, the repository's
-// required checks and the review records posted on the PR, runs the gate, and only then calls the merge endpoint with
-// `sha=<approved>`, so GitHub itself also refuses if the head moved.
+// required checks, the review records posted on the PR and the live tip of the
+// base branch, proves with git (in the current tree) which base updates on the
+// approved head are pure, runs the gate, and only then calls the merge
+// endpoint with `sha=<approved>`, so GitHub itself also refuses if the head
+// moved.
 //
 //   npx tsx automation/publish/merge.ts <pr> --sha <approved-40-hex>        # dry run
 //   npx tsx automation/publish/merge.ts <pr> --sha <sha> --merge \
@@ -231,6 +235,36 @@ export function fetchRequiredChecks(): RequiredCheck[] | null {
   }
 }
 
+// The commit the base branch points at now. The pulls API base only moves on a
+// push, so this is read separately (lesson L39).
+export function fetchBaseTip(): string {
+  const ref = gh<{ object?: { sha?: string } }>([
+    `repos/${REPO}/git/ref/heads/${encodeURIComponent(BASE_BRANCH)}`,
+  ]);
+  const sha = ref.object?.sha ?? '';
+  if (!FULL_SHA.test(sha)) throw new GhError(`unexpected ref payload for ${BASE_BRANCH}`);
+  return sha;
+}
+
+export function fetchCommitParents(sha: string): string[] {
+  const commit = gh<{ parents?: { sha: string }[] }>([`repos/${REPO}/git/commits/${sha}`]);
+  return (commit.parents ?? []).map((p) => p.sha);
+}
+
+// Whether git must verify base updates. Only a two-parent merge commit can be
+// a pure base update, and a carry only matters when some record is for
+// another head; otherwise the evidence is empty and nothing carries, so a PR
+// without a base update never depends on a git fetch.
+export function needsBaseUpdateCheck(
+  approvedSha: string,
+  recordHeads: readonly string[],
+  parents: () => string[],
+): boolean {
+  if (!FULL_SHA.test(approvedSha)) return false;
+  if (!recordHeads.some((h) => h !== approvedSha)) return false;
+  return parents().length === 2;
+}
+
 export interface RawComment {
   id: number;
   user: { login: string; id: number } | null;
@@ -292,6 +326,24 @@ async function run(argv: string[]): Promise<number> {
   const args = parseArgs(argv);
   const live = await fetchSettledPull(args.pr);
   const reviews = parseReviewComments(fetchIssueComments(args.pr), args.pr, MAINTAINERS);
+  const baseTipSha = fetchBaseTip();
+  // Git runs in the current tree: the trusted origin/main worktree the skill
+  // runs this from, and only when a carry could matter (needsBaseUpdateCheck).
+  // When it runs, any failure refuses the merge.
+  const baseUpdates = needsBaseUpdateCheck(
+    args.sha,
+    reviews.records.map((r) => r.review.headSha),
+    () => fetchCommitParents(args.sha),
+  )
+    ? collectBaseUpdates(
+        runGit(process.cwd()),
+        args.pr,
+        BASE_BRANCH,
+        args.sha,
+        baseTipSha,
+        reviews.records.map((r) => r.review.baseSha),
+      )
+    : { hops: [], basesOnMain: [], error: null };
   const decision = evaluateMergeGate({
     pull: live.pull,
     approvedSha: args.sha,
@@ -304,6 +356,8 @@ async function run(argv: string[]): Promise<number> {
     baseBranch: BASE_BRANCH,
     reviews: reviews.records,
     invalidReviews: reviews.invalid,
+    baseTipSha,
+    baseUpdates,
   });
   print(decision, reviews);
   if (!decision.mergeable) return 1;
