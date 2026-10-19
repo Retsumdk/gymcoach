@@ -99,11 +99,22 @@ export default async function SessionRunPage(props: Props) {
   // Planned deload week (issue #112): resolved against the clock here so the
   // client never reasons about dates; an expired deloadUntil has no effect.
   const deloadActive = isDeloadActive(user?.deloadUntil ?? null, new Date());
+  // "Last done N days ago" (issue #459), per exercise rather than per block:
+  // it says how fresh the movement is. Dated by the session start, like the
+  // "Last session ({date})" box next to it. Only the timestamp is sent: the
+  // runner counts the days in the browser's zone after mount (review of #476),
+  // since the server zone is not the lifter's and a cached page outlives the day.
+  const lastDoneAt: Record<string, string> = {};
+  for (const exerciseId of exerciseIds) {
+    const perf = lastPerformances.get(exerciseId);
+    if (perf) lastDoneAt[exerciseId] = perf.sessionStartedAt.toISOString();
+  }
 
   return (
     <SessionRunner
       session={session}
       lastPerformances={lastPerfRecord}
+      lastDoneAt={lastDoneAt}
       returnRecommendations={returnRecommendations}
       readiness={readiness}
       deloadActive={deloadActive}

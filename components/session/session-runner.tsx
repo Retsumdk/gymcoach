@@ -70,6 +70,7 @@ import { useTrainingName } from '@/components/shared/use-training-name';
 import type { GymLoadConstraints } from '@/lib/gym-loads';
 import { blockIndexByRow, occurrenceCounts, rowBlockKey, setBlockKey } from '@/lib/exercise-blocks';
 import type { ReturnRecommendation } from '@/lib/return-to-training';
+import { browserTimeZone, lastDoneDaysByExercise } from '@/lib/last-done';
 import {
   exerciseDetailPath,
   selectedExerciseIndex,
@@ -115,6 +116,10 @@ type SessionRunnerProps = {
     gym: (Gym & { exerciseConfigs: GymExerciseConfig[]; equipment: SessionGymEquipment[] }) | null;
   };
   lastPerformances: Record<string, SerializedLastPerformance>;
+  // When each exercise was last done (issue #459), ISO timestamps keyed by
+  // exercise id; a missing key means never done. Omitted, the card shows no
+  // "last done" line at all.
+  lastDoneAt?: Record<string, string>;
   returnRecommendations: Record<string, ReturnRecommendation>;
   // Latest in-window readiness check-in (or null). Drives whether the load
   // suggestion is held/reduced and the matching explainer in the UI.
@@ -143,6 +148,7 @@ type Mode =
 export function SessionRunner({
   session,
   lastPerformances,
+  lastDoneAt,
   returnRecommendations,
   readiness,
   deloadActive,
@@ -220,6 +226,18 @@ export function SessionRunner({
   // preference lives in localStorage, so it is read after mount; until then we
   // assume the default (on) so the first render matches the server output.
   const [autoRegulate, setAutoRegulate] = useState(true);
+
+  // "Last done" days (issue #459) are counted here, after mount, in the
+  // browser's zone and against the device clock (review of #476): the server
+  // zone is not the lifter's, and a page served from the offline cache the
+  // next day must not still say "today". Null until then, so the first render
+  // matches the server output and the card shows no line yet.
+  const [lastDoneDays, setLastDoneDays] = useState<Record<string, number> | null>(null);
+  useEffect(() => {
+    setLastDoneDays(
+      lastDoneAt ? lastDoneDaysByExercise(lastDoneAt, new Date(), browserTimeZone()) : null,
+    );
+  }, [lastDoneAt]);
 
   const currentPE = programExercises[currentIdx];
   const currentTarget = effectiveProgramExercises[currentIdx];
@@ -811,6 +829,7 @@ export function SessionRunner({
         <ExerciseCard
           programExercise={currentPE}
           lastPerformance={lastPerf}
+          lastDoneDaysAgo={lastDoneDays ? (lastDoneDays[currentPE.exerciseId] ?? null) : undefined}
           readiness={effectiveReadiness}
           deloadActive={deloadActive}
           unit={unit}
