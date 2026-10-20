@@ -514,6 +514,35 @@ describe('POST /api/backup - restore round trip (issue #168)', () => {
     expect(profileB?.email).toBe('b@test.dev');
   });
 
+  it('restores a block kept after its back-off row was removed, unchanged (issue #475)', async () => {
+    // Reachable state: log a BBB day, then remove the back-off row. The seed's
+    // Upper A holds the bench once but keeps its block 1 set. Every reader
+    // normalizes at read time, so the restore keeps the stored block exactly.
+    const userA = await seedFullUser('blocks-a@test.dev');
+    actAs(userA.id);
+    const dump = await (await getBackup()).json();
+
+    const userB = await db.user.create({ data: { email: 'blocks-b@test.dev', passwordHash: 'x' } });
+    actAs(userB.id);
+    const res = await postBackup(jsonReq({ payload: dump, confirmReplace: true }));
+    expect(res.status).toBe(200);
+
+    const bench = await db.set.findMany({
+      where: { session: { userId: userB.id, workout: { name: 'Upper A' } }, exercise: { name: 'Bench Press' } },
+      orderBy: { block: 'asc' },
+      select: { block: true, weight: true },
+    });
+    expect(
+      await db.programExercise.count({
+        where: { workout: { name: 'Upper A', program: { userId: userB.id } }, exercise: { name: 'Bench Press' } },
+      }),
+    ).toBe(1);
+    expect(bench).toEqual([
+      { block: 1, weight: 60 },
+      { block: null, weight: 100 },
+    ]);
+  });
+
   it('still restores a version 1 backup (fields and models added in v2 absent)', async () => {
     const user = await db.user.create({
       data: { email: 'v1@test.dev', passwordHash: 'x', displayName: 'Keep Me' },

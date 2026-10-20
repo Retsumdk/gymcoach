@@ -68,6 +68,7 @@ export async function POST(req: Request) {
               reps: true,
               durationSec: true,
               distanceM: true,
+              block: true,
               exercise: { select: { name: true } },
             },
           },
@@ -86,6 +87,11 @@ export async function POST(req: Request) {
               set.reps,
               set.durationSec,
               set.distanceM,
+              // A file without the block column (an export from before issue
+              // #475) keys its rows without a block, so the existing sets are
+              // keyed the same way: re-importing it must not duplicate a
+              // block 1 set it already holds.
+              parsed.hasBlockColumn ? set.block : null,
             ),
           );
         }
