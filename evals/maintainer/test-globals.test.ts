@@ -112,4 +112,26 @@ describe('testGlobalHits', () => {
     expect(keys).toContain('global object stored: o.w = globalThis');
     expect(keys).not.toContain('test global read off the global object: o.afterEach');
   });
+
+  it('reports a read of constructor, the route to the Function constructor (review of #503)', () => {
+    const KIND = 'constructor read (reaches the Function constructor)';
+    for (const content of [
+      'const F = (() => 0).constructor;\nF(code)();',
+      "const F = fn['constructor'];",
+      'const { constructor: F } = fn;',
+      'Object.getPrototypeOf(fn).constructor(code);',
+    ])
+      expect(
+        kinds(content).some((k) => k.startsWith(KIND)),
+        content,
+      ).toBe(true);
+    for (const content of [
+      'class A {\n  constructor(private n: number) {}\n}',
+      'class B extends A {\n  constructor() {\n    super(1);\n  }\n}',
+      'const kind = err.constructor.name;',
+      "if (key === 'constructor') return;",
+      'const same = a.constructor === b.constructor;',
+    ])
+      expect(kinds(content), content).toEqual([]);
+  });
 });
